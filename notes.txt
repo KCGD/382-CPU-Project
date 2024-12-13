@@ -1,0 +1,183 @@
+﻿single-cycle data path
+
+parts:
+    instruction memory
+    register file (>= 4 regs)
+    ALU
+    data memory
+    PC
+
+Requirements:
+    ADD
+    (>= 1 other op)
+    [not required] imm support
+    LDR
+    STR
+        both with register and offset
+
+Instruction splitting:
+    ReadReg1 = 3b
+    ReadReg2 = 3b
+    WriteReg = 3b
+
+    remaining 7b
+
+    1b as immidiate / reg switch
+    3b as opcode (7 opcodes)
+    3b as imm
+
+opcodes:
+    ADR     xDst    label
+        pseudo instruction
+        translates to
+    LDR     <dest reg, base reg, offset reg / imm>
+        LDR with immidiate automatically converts
+        to LDRO by assembler
+    STR     <src reg, base reg, offset reg / imm>
+        same switch in assembler
+    MOV     <dst reg, src reg / imm>
+    ADD     <dst reg, src reg / imm>
+    one more :)
+    ...
+
+Control:
+    000: MOV
+        RegWrite    1
+        MemRead     0
+        MemWrite    0
+        MemToReg    1
+        CBr         0
+        UBr         0
+        ALUsrc      mod
+        ALUop       000 (passthrough)
+
+        ReadReg(1,2), WriteReg from instruction
+
+    001: LDR
+        RegWrite    1
+        MemRead     1
+        MemWrite    0
+        MemToReg    1
+        CBr         0
+        UBr         0
+        ALUsrc      mod
+        ALUop       001 (Add)
+
+        Load data to register WriteReg from Reg1 (base) + Reg2 or imm depending on mod
+
+    010: STR
+        RegWrite    0
+        MemRead     0
+        MemWrite    1
+        MemToReg    0
+        CBr         0
+        UBr         0
+        ALUsrc      mod
+        ALUop       001 (Add)
+
+    011: ADD
+        RegWrite    1
+        MemRead     0
+        MemWrite    0
+        MemToReg    0
+        CBr         0
+        UBr         0
+        ALUsrc      mod
+        ALUop       001 (Add)
+
+    100: SUB
+        RegWrite    1
+        MemRead     0
+        MemWrite    0
+        MemToReg    0
+        CBr         0
+        UBr         0
+        ALUsrc      mod
+        ALUop       002 (Sub)
+
+    101: B
+        Unconditional branching
+        always accept immidiate value
+        Use muxer to switch RegData1 wire to PC
+            UBr || CBr
+
+        RegWrite    0
+        MemRead     0
+        MemWrite    0
+        MemToReg    0
+        CBr         0
+        UBr         1
+        ALUsrc      1
+        ALUop       mod (001 or 002)
+
+
+    110: BEQ
+        and with CBr and ALU's EQ reg
+        calculate new address same as B
+
+        RegWrite    0
+        MemRead     0
+        MemWrite    0
+        MemToReg    0
+        CBr         1
+        UBr         0
+        ALUsrc      1
+        ALUop       mod (001 or 002)
+
+    111: CMP
+        compare a and b, store to EQ register
+
+        RegWrite    0
+        MemRead     0
+        MemWrite    0
+        MemToReg    0
+        CBr         0
+        UBr         0
+        ALUsrc      mod
+        ALUop       003
+
+ALU:
+    000: Passthrough
+        does nothing
+    001: Add (a, b)
+    010: Sub (a, b)
+        send
+    011: Compare (a, b) [COMBINATION OP]
+        sets equal register
+        all ops set eq regoster to zero except:
+            branching which doesnt change it
+            CMP which sets it accordingly
+
+        I JUST REALIZED
+        "Z" is the EQ wire, it goes to CBr!!!!
+    100: B
+
+
+ROM:
+    each spot (four digits) stores a 16 bit hex number
+
+STR:    (WriteReg is data register!)
+    First, calculate address
+        store this in register
+        next, set reg2loc to read data from buffer
+            stream straight to memory from ReadData1
+
+Testing:
+    MOV     x0, 7 (data)
+    MOV     x1, 1 (base)
+    MOV     x2, 2 (offset)
+
+    STR     x1, x2, x0
+
+    Expect: bottom reg to be 3, top to be 7
+
+    Set x0 to 7: 1000000000000111 - 8007
+    Set x1 to 1: 1000000000001001 - 800f
+    Set x2 to 2: 1000000000010010 - 8012
+    STR:         0010001010000000 - 2280
+
+    7000 cmp x0 x0
+
+    STR add isnt working
+
+1000000001
